@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex 上下文仪表"
+  short_description: "安装、诊断、升级或卸载跨平台 Codex 上下文仪表"
+  default_prompt: "使用 $codex-context-meter 安装并验证适合当前系统的 Codex 上下文仪表。"

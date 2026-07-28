@@ -1,0 +1,43 @@
+{
+  "name": "codex-context-meter",
+  "version": "1.3.0",
+  "description": "Codex 上下文与设置额度只读仪表",
+  "main": "main.js",
+  "author": "sunlulu0122-alt",
+  "license": "MIT",
+  "build": {
+    "appId": "com.sunlulu.codex-context-meter",
+    "productName": "Codex 上下文仪表",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "ring.html",
+      "details.html",
+      "styles.css",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/whale.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "artifactName": "CodexContextMeter-Windows-Setup-${version}.${ext}"
+    }
+  }
+}

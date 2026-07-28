@@ -1,0 +1,215 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --green: #18b893;
+  --blue: #4b8eff;
+  --purple: #7357ff;
+  --yellow: #f0b44d;
+  --gray: #9ba4b3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.ring-page {
+  display: grid;
+  place-items: center;
+}
+
+.meter-ring {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: default;
+}
+
+.ring-track,
+.ring-progress {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+}
+
+.ring-track {
+  border: 2.4px solid rgb(0 0 0 / 14%);
+}
+
+.ring-progress {
+  background: conic-gradient(var(--ring-color, var(--green)) var(--progress, 0%), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 48%, #000 52%);
+  mask: radial-gradient(circle, transparent 48%, #000 52%);
+}
+
+.meter-ring img {
+  position: absolute;
+  inset: 8px;
+  width: 12px;
+  height: 12px;
+  object-fit: contain;
+}
+
+.details-page {
+  padding: 18px;
+}
+
+.details-card {
+  width: 330px;
+  min-height: 404px;
+  padding: 15px;
+  color: rgb(29 31 36 / 88%);
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: 14px;
+  background: rgb(248 248 249 / 94%);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
+  backdrop-filter: blur(18px);
+}
+
+header,
+.headline,
+.metric-row,
+footer {
+  display: flex;
+  align-items: center;
+}
+
+header {
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+header button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  color: #7c838d;
+  background: transparent;
+  font-size: 19px;
+}
+
+.headline {
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.headline strong {
+  font-size: 25px;
+  font-variant-numeric: tabular-nums;
+}
+
+.headline span {
+  color: #808690;
+  font-size: 11.5px;
+}
+
+.usage-bar {
+  width: 100%;
+  height: 7px;
+  margin: 11px 0 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 9%);
+}
+
+.usage-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--purple);
+}
+
+.section-label {
+  margin: 11px 0 7px;
+  padding-top: 10px;
+  color: #7c838d;
+  border-top: 1px solid rgb(0 0 0 / 8%);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.metric-row {
+  min-height: 27px;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.metric-row .dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--row-color, var(--gray));
+}
+
+.metric-row .label {
+  color: rgb(29 31 36 / 82%);
+}
+
+.metric-row .help {
+  color: #9aa0a9;
+  cursor: help;
+  font-size: 10px;
+}
+
+.metric-row .spacer {
+  flex: 1;
+}
+
+.metric-row .secondary {
+  color: #8a9099;
+  font-size: 11px;
+}
+
+.metric-row .value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+footer {
+  gap: 5px;
+  margin-top: 10px;
+  color: #838a94;
+  font-size: 10.5px;
+}
+
+footer::before {
+  content: "✓";
+  display: grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  color: white;
+  border-radius: 50%;
+  background: var(--green);
+  font-size: 9px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .details-card {
+    color: rgb(245 246 248 / 90%);
+    border-color: rgb(255 255 255 / 12%);
+    background: rgb(40 42 47 / 95%);
+  }
+
+  .metric-row .label {
+    color: rgb(245 246 248 / 86%);
+  }
+
+  .usage-bar {
+    background: rgb(255 255 255 / 12%);
+  }
+}
