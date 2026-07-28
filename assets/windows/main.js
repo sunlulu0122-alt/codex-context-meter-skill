@@ -409,6 +409,26 @@ function truncateText(value, limit = 1600) {
   return text.length > limit ? `${text.slice(0, limit)}\n…（摘录已截断）` : text;
 }
 
+function normalizeThreadName(name) {
+  let value = String(name || "").trim();
+  while (value.endsWith("（自动交接）")) value = value.slice(0, -"（自动交接）".length).trim();
+  return value || "Codex 任务";
+}
+
+function nextThreadName(sourceName) {
+  const source = normalizeThreadName(sourceName);
+  const match = source.match(/^(.*?)(\s+)([0-9]+)$/);
+  if (!match) return `${source} 2`;
+  const [, base, separator, numberText] = match;
+  let maximum = Number(numberText);
+  for (const entry of threadCache) {
+    const candidate = normalizeThreadName(entry.name);
+    const candidateMatch = candidate.match(/^(.*?)(\s+)([0-9]+)$/);
+    if (candidateMatch && candidateMatch[1] === base) maximum = Math.max(maximum, Number(candidateMatch[3]));
+  }
+  return `${base}${separator}${maximum + 1}`;
+}
+
 function buildAutomaticHandoff(rollout, snapshot) {
   const lines = fs.readFileSync(rollout, "utf8").split(/\r?\n/);
   let cwd;
@@ -448,6 +468,7 @@ function buildAutomaticHandoff(rollout, snapshot) {
   const transcript = recent
     .map((item) => `### ${item.role === "user" ? "用户" : "Codex"}\n${item.text}`)
     .join("\n\n");
+  const nextName = nextThreadName(snapshot.threadName);
   const markdown = `# Codex 自动交接包
 
 来源任务：${snapshot.threadName}
@@ -466,7 +487,7 @@ ${assistantNotes}
 
 ## 进行中
 
-继续处理来源任务最后一项用户要求；先检查工作区和运行状态，避免重复已经完成的工作。
+这是同一项工作的后续任务，不是一个空白的新对话。必须把本交接包视为来源任务的工作状态：先检查工作区和运行状态，随后直接继续处理来源任务最后一项用户要求，避免重复已经完成的工作或只回复“已收到”。
 
 ## 关键文件/路径
 
@@ -499,7 +520,7 @@ ${assistantNotes}
 1. 完整读取本交接包。
 2. 在项目目录执行 \`git status\`，保留所有既有修改。
 3. 复核最后一项用户要求、现有代码和验证结果。
-4. 从未完成处继续，修改后执行相应验证。
+4. 从未完成处继续执行实际工作，修改后执行相应验证；不要等待用户重复说明任务。
 
 ## 最近对话摘录
 
@@ -508,6 +529,7 @@ ${transcript}
   return {
     sourceThreadId: snapshot.threadId,
     sourceThreadName: snapshot.threadName,
+    nextThreadName: nextName,
     cwd,
     markdown,
   };
@@ -576,13 +598,13 @@ async function createNextThread(executable, handoff, modelName) {
     if (!threadId) throw new Error("Codex App Server 未返回新任务 ID");
     await request(3, "thread/name/set", {
       threadId,
-      name: `${handoff.sourceThreadName}（自动交接）`,
+      name: handoff.nextThreadName,
     });
     await request(4, "turn/start", {
       threadId,
       input: [{
         type: "text",
-        text: `这是由 Codex 上下文仪表在来源任务达到 80% 后创建的自动交接任务。\n请完整读取以下本机交接包并从未完成处继续：\n\n${handoff.markdown}`,
+        text: `这是由 Codex 上下文仪表在来源任务达到 80% 后创建的同一工作续接任务，不是空白对话。\n不要要求用户重复说明，也不要只确认收到。请完整读取以下交接包，在其中指定的项目目录检查现状后，立刻从未完成处继续实际工作：\n\n${handoff.markdown}`,
       }],
     });
     return threadId;

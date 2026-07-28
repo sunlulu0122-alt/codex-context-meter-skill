@@ -336,8 +336,70 @@ private enum AutomaticHandoffError: LocalizedError {
 private struct AutomaticHandoffPackage {
     let sourceThreadId: String
     let sourceThreadName: String
+    let nextThreadName: String
     let cwd: String
     let markdown: String
+}
+
+private enum ThreadNameSequencer {
+    private static let automaticSuffix = "（自动交接）"
+    private static let numberedName = try! NSRegularExpression(
+        pattern: "^(.*?)(\\s+)([0-9]+)$"
+    )
+
+    /// Mirrors the user's existing task-title convention (for example,
+    /// “赛博办公室开发 3” becomes “赛博办公室开发 4”). The session index is
+    /// read-only and is deliberately used instead of Codex's private database.
+    static func nextName(after sourceName: String) -> String {
+        let source = normalized(sourceName)
+        let indexURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/session_index.jsonl")
+        let names = (try? String(contentsOf: indexURL, encoding: .utf8))?
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { line -> String? in
+                guard let data = String(line).data(using: .utf8),
+                      let item = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { return nil }
+                return JSONValue.string(item["thread_name"])
+            } ?? []
+        return nextName(after: source, among: names)
+    }
+
+    static func nextName(after sourceName: String, among names: [String]) -> String {
+        let source = normalized(sourceName)
+        let range = NSRange(source.startIndex..., in: source)
+        guard let match = numberedName.firstMatch(in: source, range: range),
+              let baseRange = Range(match.range(at: 1), in: source),
+              let separatorRange = Range(match.range(at: 2), in: source),
+              let numberRange = Range(match.range(at: 3), in: source),
+              let sourceNumber = Int(source[numberRange])
+        else {
+            return "\(source) 2"
+        }
+        let base = String(source[baseRange])
+        let separator = String(source[separatorRange])
+        let maximum = names.reduce(sourceNumber) { currentMaximum, rawName in
+            let candidate = normalized(rawName)
+            let candidateRange = NSRange(candidate.startIndex..., in: candidate)
+            guard let candidateMatch = numberedName.firstMatch(in: candidate, range: candidateRange),
+                  let candidateBaseRange = Range(candidateMatch.range(at: 1), in: candidate),
+                  let candidateNumberRange = Range(candidateMatch.range(at: 3), in: candidate),
+                  String(candidate[candidateBaseRange]) == base,
+                  let number = Int(candidate[candidateNumberRange])
+            else { return currentMaximum }
+            return max(currentMaximum, number)
+        }
+        return "\(base)\(separator)\(maximum + 1)"
+    }
+
+    private static func normalized(_ name: String) -> String {
+        var value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        while value.hasSuffix(automaticSuffix) {
+            value.removeLast(automaticSuffix.count)
+            value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return value.isEmpty ? "Codex 任务" : value
+    }
 }
 
 private enum AutomaticHandoffBuilder {
@@ -391,6 +453,7 @@ private enum AutomaticHandoffBuilder {
         }
         .joined(separator: "\n\n")
         let timestamp = ISO8601DateFormatter().string(from: Date())
+        let nextThreadName = ThreadNameSequencer.nextName(after: snapshot.threadName)
         let markdown = """
         # Codex 自动交接包
 
@@ -410,7 +473,7 @@ private enum AutomaticHandoffBuilder {
 
         ## 进行中
 
-        继续处理来源任务最后一项用户要求；先检查工作区和运行状态，避免重复已经完成的工作。
+        这是同一项工作的后续任务，不是一个空白的新对话。必须把本交接包视为来源任务的工作状态：先检查工作区和运行状态，随后直接继续处理来源任务最后一项用户要求，避免重复已经完成的工作或只回复“已收到”。
 
         ## 关键文件/路径
 
@@ -443,7 +506,7 @@ private enum AutomaticHandoffBuilder {
         1. 完整读取本交接包。
         2. 在项目目录执行 `git status`，保留所有既有修改。
         3. 复核最后一项用户要求、现有代码和验证结果。
-        4. 从未完成处继续，修改后执行相应验证。
+        4. 从未完成处继续执行实际工作，修改后执行相应验证；不要等待用户重复说明任务。
 
         ## 最近对话摘录
 
@@ -452,6 +515,7 @@ private enum AutomaticHandoffBuilder {
         return AutomaticHandoffPackage(
             sourceThreadId: snapshot.threadId,
             sourceThreadName: snapshot.threadName,
+            nextThreadName: nextThreadName,
             cwd: cwd,
             markdown: markdown
         )
@@ -526,20 +590,19 @@ private final class CodexHandoffClient {
               !threadId.isEmpty
         else { throw AutomaticHandoffError.malformedResponse }
 
-        let name = "\(package.sourceThreadName)（自动交接）"
         try write(
             [
                 "id": 3,
                 "method": "thread/name/set",
-                "params": ["threadId": threadId, "name": name],
+                "params": ["threadId": threadId, "name": package.nextThreadName],
             ],
             to: input.fileHandleForWriting
         )
         _ = try response(id: 3, from: output.fileHandleForReading)
 
         let prompt = """
-        这是由 Codex 上下文仪表在来源任务达到 80% 后创建的自动交接任务。
-        请完整读取本机交接包并从未完成处继续：
+        这是由 Codex 上下文仪表在来源任务达到 80% 后创建的同一工作续接任务，不是空白对话。
+        不要要求用户重复说明，也不要只确认收到。请完整读取以下交接包，在其中指定的项目目录检查现状后，立刻从未完成处继续实际工作：
 
         \(package.markdown)
         """
@@ -2379,7 +2442,7 @@ private func runSelfTest() -> Int32 {
     let snapshot = RolloutReader().parse(
         data: Data(fixture.utf8),
         threadId: "test-thread",
-        threadName: "测试任务"
+        threadName: "测试任务 3"
     )
     let fixtureURL = FileManager.default.temporaryDirectory.appendingPathComponent(
         "codex-context-meter-\(UUID().uuidString).jsonl"
@@ -2398,8 +2461,17 @@ private func runSelfTest() -> Int32 {
         && snapshot?.lastCompactionAt != nil
         && snapshot?.taskEstimate?.sampleCount == 2
         && handoff?.cwd == "/tmp/context-meter-test"
+        && handoff?.nextThreadName == "测试任务 4"
         && handoff?.markdown.contains("## 禁止事项") == true
         && handoff?.markdown.contains("继续当前测试任务") == true
+        && ThreadNameSequencer.nextName(
+            after: "赛博办公室开发 3",
+            among: ["赛博办公室开发 2", "赛博办公室开发 4"]
+        ) == "赛博办公室开发 5"
+        && ThreadNameSequencer.nextName(
+            after: "赛博办公室开发 4（自动交接）",
+            among: ["赛博办公室开发 3", "赛博办公室开发 4"]
+        ) == "赛博办公室开发 5"
     print(passed ? "CodexContextMeter self-test passed" : "CodexContextMeter self-test failed")
     return passed ? 0 : 1
 }
