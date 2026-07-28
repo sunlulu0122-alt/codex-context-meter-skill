@@ -7,7 +7,8 @@ import UserNotifications
 private let codexBundleIdentifier = "com.openai.codex"
 private let contextMeterBundleIdentifier = "com.sunlulu.codex-context-meter"
 private let maxRolloutTailBytes = 2 * 1024 * 1024
-private let automaticHandoffThreshold = 80.0
+private let defaultAutomaticHandoffThreshold = 80.0
+private let automaticHandoffThresholdDefaultsKey = "automaticHandoff.thresholdPercent"
 
 private enum CodexExecutableLocator {
     static func locate() -> URL? {
@@ -405,7 +406,8 @@ private enum ThreadNameSequencer {
 private enum AutomaticHandoffBuilder {
     static func build(
         from rolloutURL: URL,
-        snapshot: ContextSnapshot
+        snapshot: ContextSnapshot,
+        threshold: Double
     ) throws -> AutomaticHandoffPackage {
         guard let content = try? String(contentsOf: rolloutURL, encoding: .utf8)
         else { throw AutomaticHandoffError.invalidRollout }
@@ -460,7 +462,7 @@ private enum AutomaticHandoffBuilder {
         来源任务：\(snapshot.threadName)
         来源 Thread ID：\(snapshot.threadId)
         生成时间：\(timestamp)
-        触发依据：上下文仪表读取到真实使用率 \(TokenFormatter.percent(snapshot.usedPercent))，达到 \(Int(automaticHandoffThreshold))% 阈值。
+        触发依据：上下文仪表读取到真实使用率 \(TokenFormatter.percent(snapshot.usedPercent))，达到 \(Int(threshold))% 阈值。
 
         ## 用户目标
 
@@ -497,7 +499,7 @@ private enum AutomaticHandoffBuilder {
 
         ## 验证结果
 
-        - 交接触发值：\(TokenFormatter.percent(snapshot.usedPercent))。
+        - 交接触发值：\(TokenFormatter.percent(snapshot.usedPercent))（设置阈值 \(Int(threshold))%）。
         - 上下文窗口：\(snapshot.usage.totalTokens) / \(snapshot.contextWindow) tokens。
         - 交接包内容来自本机只读 rollout；“已完成”仍需按实际文件和测试结果复核。
 
@@ -1412,9 +1414,33 @@ private final class MeterViewModel: ObservableObject {
     @Published var snapshot: ContextSnapshot?
     @Published var accountQuota: AccountQuotaSnapshot?
     @Published var automaticHandoffStatus = "inactive"
+    @Published var automaticHandoffTriggerPercent: Double?
+    @Published private(set) var automaticHandoffThreshold: Double
     @Published var isExpanded = false
     @Published var statusText = "等待 Codex 对话"
     private var hoverGeneration = UUID()
+
+    init() {
+        let stored = UserDefaults.standard.object(forKey: automaticHandoffThresholdDefaultsKey)
+            .flatMap { $0 as? Double }
+        automaticHandoffThreshold = MeterViewModel.normalizedThreshold(
+            stored ?? defaultAutomaticHandoffThreshold
+        )
+    }
+
+    func setAutomaticHandoffThreshold(_ value: Double) {
+        let normalized = MeterViewModel.normalizedThreshold(value)
+        automaticHandoffThreshold = normalized
+        UserDefaults.standard.set(normalized, forKey: automaticHandoffThresholdDefaultsKey)
+    }
+
+    func restoreDefaultAutomaticHandoffThreshold() {
+        setAutomaticHandoffThreshold(defaultAutomaticHandoffThreshold)
+    }
+
+    private static func normalizedThreshold(_ value: Double) -> Double {
+        min(95, max(50, (value / 5).rounded() * 5))
+    }
 
     func setHovered(_ hovered: Bool) {
         if hovered {
@@ -1640,9 +1666,36 @@ private struct MeterDetailsView: View {
                     color: Color(hex: 0xF0B44D),
                     label: "自动交接",
                     value: handoffStatusText(model.automaticHandoffStatus),
-                    secondary: "阈值 80%",
-                    explanation: "只按仪表读取到的真实上下文比例触发。达到 80% 后等待当前任务完成，再保存标准交接包、新建并打开下一任务；读取不到精确比例时不触发。"
+                    secondary: model.automaticHandoffTriggerPercent.map {
+                        "已于 \(TokenFormatter.percent($0)) 触发"
+                    } ?? "阈值 \(Int(model.automaticHandoffThreshold))%",
+                    explanation: "只按已用上下文比例触发，绝不按剩余比例。达到设置阈值后等待当前任务完成，再保存标准交接包、新建并打开下一任务；读取不到精确比例时不触发。"
                 )
+                HStack(spacing: 8) {
+                    Text("交接阈值")
+                        .font(.system(size: 11.5))
+                    Slider(
+                        value: Binding(
+                            get: { model.automaticHandoffThreshold },
+                            set: { model.setAutomaticHandoffThreshold($0) }
+                        ),
+                        in: 50...95,
+                        step: 5
+                    )
+                    .controlSize(.small)
+                    Text("已用 \(Int(model.automaticHandoffThreshold))%")
+                        .font(.system(size: 11, weight: .semibold))
+                        .monospacedDigit()
+                        .frame(width: 55, alignment: .trailing)
+                    if model.automaticHandoffThreshold != defaultAutomaticHandoffThreshold {
+                        Button("恢复 80%") {
+                            model.restoreDefaultAutomaticHandoffThreshold()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Color(hex: 0x4B8EFF))
+                    }
+                }
 
                 if let task = snapshot.taskEstimate {
                     Divider().opacity(0.6)
@@ -2058,6 +2111,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             handoffStatusByThread[snapshot.threadId] ?? automaticHandoffStoredStatus(
                 threadId: snapshot.threadId
             )
+        model.automaticHandoffTriggerPercent = automaticHandoffTriggerPercent(
+            threadId: snapshot.threadId
+        )
         model.snapshot = snapshot
         model.statusText = "\(snapshot.threadName) · \(TokenFormatter.percent(snapshot.usedPercent))"
         overlay.update(
@@ -2155,7 +2211,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             if let modelName = snapshot.modelName {
                 payload["modelName"] = modelName
             }
-            payload["automaticHandoffThreshold"] = automaticHandoffThreshold
+            payload["automaticHandoffThreshold"] = model.automaticHandoffThreshold
+            if let triggerPercent = automaticHandoffTriggerPercent(threadId: snapshot.threadId) {
+                payload["automaticHandoffTriggerPercent"] = triggerPercent
+            }
             payload["automaticHandoffStatus"] =
                 handoffStatusByThread[snapshot.threadId] ?? automaticHandoffStoredStatus(
                     threadId: snapshot.threadId
@@ -2237,12 +2296,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
         let completedKey = "automaticHandoff.completed.\(snapshot.threadId)"
         let pendingNoticeKey = "automaticHandoff.pendingNotice.\(snapshot.threadId)"
         let attemptKey = "automaticHandoff.lastAttempt.\(snapshot.threadId)"
+        let triggerKey = "automaticHandoff.triggerPercent.\(snapshot.threadId)"
 
         if !(defaults.string(forKey: completedKey) ?? "").isEmpty {
             handoffStatusByThread[snapshot.threadId] = "completed"
             return
         }
-        if snapshot.usedPercent >= automaticHandoffThreshold {
+        if snapshot.usedPercent >= model.automaticHandoffThreshold {
+            if !defaults.bool(forKey: pendingKey) {
+                defaults.set(snapshot.usedPercent, forKey: triggerKey)
+            }
             defaults.set(true, forKey: pendingKey)
         }
         guard defaults.bool(forKey: pendingKey) else {
@@ -2254,7 +2317,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             if !defaults.bool(forKey: pendingNoticeKey) {
                 defaults.set(true, forKey: pendingNoticeKey)
                 sendNotification(
-                    title: "Codex 已达到 80%，准备交接",
+                    title: "Codex 已达到 \(Int(self.model.automaticHandoffThreshold))%，准备交接",
                     body: "\(snapshot.threadName) 将在当前任务安全完成后生成交接包并新建任务。"
                 )
             }
@@ -2276,7 +2339,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             let result = Result { () -> (String, URL) in
                 let package = try AutomaticHandoffBuilder.build(
                     from: rolloutURL,
-                    snapshot: snapshot
+                    snapshot: snapshot,
+                    threshold: self.model.automaticHandoffThreshold
                 )
                 let handoffURL = try self.writeAutomaticHandoff(package)
                 let newThreadId = try self.handoffClient.createNextThread(
@@ -2318,6 +2382,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
                 if self.model.snapshot?.threadId == snapshot.threadId {
                     self.model.automaticHandoffStatus =
                         self.handoffStatusByThread[snapshot.threadId] ?? "inactive"
+                    self.model.automaticHandoffTriggerPercent = self.automaticHandoffTriggerPercent(
+                        threadId: snapshot.threadId
+                    )
                     self.overlay.syncExpandedState()
                 }
                 self.writeDiagnostic(
@@ -2326,6 +2393,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
                 )
             }
         }
+    }
+
+    private func automaticHandoffTriggerPercent(threadId: String) -> Double? {
+        let key = "automaticHandoff.triggerPercent.\(threadId)"
+        guard let value = UserDefaults.standard.object(forKey: key) as? NSNumber else {
+            return nil
+        }
+        let percent = value.doubleValue
+        return percent > 0 && percent <= 100 ? percent : nil
     }
 
     private func writeAutomaticHandoff(
@@ -2450,7 +2526,11 @@ private func runSelfTest() -> Int32 {
     try? fixture.write(to: fixtureURL, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: fixtureURL) }
     let handoff = snapshot.flatMap {
-        try? AutomaticHandoffBuilder.build(from: fixtureURL, snapshot: $0)
+        try? AutomaticHandoffBuilder.build(
+            from: fixtureURL,
+            snapshot: $0,
+            threshold: defaultAutomaticHandoffThreshold
+        )
     }
     let passed = snapshot?.usage.totalTokens == 80_000
         && snapshot?.contextWindow == 200_000
