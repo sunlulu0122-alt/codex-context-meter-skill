@@ -30,6 +30,11 @@ verify_macos
 verify_source_origin "$ALLOW_LOCAL"
 verify_asset_hashes
 
+if [[ -z "${CODEX_CONTEXT_METER_APP_DIR:-}" && -e "$APP_DIR" && ! -w "$APP_DIR" ]]; then
+  APP_DIR="$HOME/Applications/Codex 上下文仪表（Skill）.app"
+  printf '现有应用由其他用户拥有，将安装到可写路径：%s\n' "$APP_DIR"
+fi
+
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-context-meter.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 BUILT_APP="$WORK_DIR/$APP_NAME"
@@ -91,6 +96,16 @@ chmod +x "$CONTENTS/MacOS/$APP_EXECUTABLE"
 
 mkdir -p "$(dirname "$APP_DIR")" "$LAUNCH_AGENT_DIR" "$SUPPORT_DIR"
 if [[ -e "$APP_DIR" ]]; then
+  /bin/launchctl bootout "gui/$UID/$APP_IDENTIFIER" 2>/dev/null || true
+  /usr/bin/pkill -f "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE" 2>/dev/null || true
+  for _ in 1 2 3 4 5; do
+    if ! /usr/bin/pgrep -f "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE" >/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  /usr/bin/pgrep -f "$APP_DIR/Contents/MacOS/$APP_EXECUTABLE" >/dev/null \
+    && die "旧应用进程未能停止，已取消替换。"
   mv "$APP_DIR" "$WORK_DIR/previous.app"
 fi
 /usr/bin/ditto "$BUILT_APP" "$APP_DIR"

@@ -7,6 +7,14 @@ source "$SCRIPT_DIR/common-macos.sh"
 
 APP_DIR="${CODEX_CONTEXT_METER_APP_DIR:-$HOME/Applications/$APP_NAME}"
 LAUNCH_AGENT_DIR="${CODEX_CONTEXT_METER_LAUNCH_AGENT_DIR:-$HOME/Library/LaunchAgents}"
+SUPPORT_DIR="${CODEX_CONTEXT_METER_SUPPORT_DIR:-$HOME/Library/Application Support/Codex Context Meter}"
+INSTALL_MANIFEST="$SUPPORT_DIR/install.json"
+if [[ -z "${CODEX_CONTEXT_METER_APP_DIR:-}" && -f "$INSTALL_MANIFEST" ]]; then
+  recorded_app_dir="$(/usr/bin/plutil -extract appPath raw -o - "$INSTALL_MANIFEST" 2>/dev/null || true)"
+  if [[ -n "$recorded_app_dir" ]]; then
+    APP_DIR="$recorded_app_dir"
+  fi
+fi
 LAUNCH_AGENT="$LAUNCH_AGENT_DIR/$APP_IDENTIFIER.plist"
 failures=0
 
