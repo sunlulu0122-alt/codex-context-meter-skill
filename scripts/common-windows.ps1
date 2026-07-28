@@ -49,8 +49,9 @@ function Assert-SourceOrigin([switch]$AllowLocalSource) {
     if ((Get-NormalizedRemote $remote) -ne $script:ExpectedRepository) {
         Stop-WithError "Git 来源不受信任：$remote"
     }
-    $revision = (& git -C $repoRoot rev-parse --short=12 HEAD)
-    Write-Output "来源已验证：$($script:ExpectedRepository) @ $revision"
+    $revision = (& git -C $repoRoot rev-parse HEAD)
+    $verifiedRepository = $script:ExpectedRepository
+    Write-Output "来源已验证：$verifiedRepository @ $revision"
 }
 
 function Assert-FileSha256([string]$Path, [string]$Expected) {
