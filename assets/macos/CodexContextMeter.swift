@@ -1192,8 +1192,16 @@ private enum AccessibilityReader {
     }
 }
 
+private enum MeterAnchorPlacement {
+    case trailingControl
+    case leadingControl
+    case composer
+}
+
 private struct CodexSurface {
     let composerFrame: CGRect
+    let anchorFrame: CGRect
+    let anchorPlacement: MeterAnchorPlacement
     let windowFrame: CGRect
     let thread: ThreadIndexEntry
     let modelMenuOpen: Bool
@@ -1220,11 +1228,14 @@ private final class CodexSurfaceReader {
         let nodes = AccessibilityReader.nodes(root: window)
         let composer = composerNode(nodes: nodes)
             ?? inferredComposerFrame(windowFrame: windowFrame)
+        let anchor = preferredAnchor(nodes: nodes, composerFrame: composer)
         guard let thread = selectedThread(nodes: nodes, window: window)
             ?? store.mostRecentlyWrittenThread(maxAge: 60 * 60)
         else { return nil }
         return CodexSurface(
             composerFrame: composer,
+            anchorFrame: anchor.frame,
+            anchorPlacement: anchor.placement,
             windowFrame: windowFrame,
             thread: thread,
             modelMenuOpen: isModelMenuOpen(nodes: nodes)
@@ -1233,7 +1244,7 @@ private final class CodexSurfaceReader {
 
     /// Window dragging only changes the focused-window frame. Reusing the
     /// last verified composer offset avoids a full AX tree walk while dragging.
-    func translatedComposerFrame(from surface: CodexSurface) -> CGRect? {
+    func translatedAnchorFrame(from surface: CodexSurface) -> CGRect? {
         guard let application = NSWorkspace.shared.runningApplications.first(where: {
             $0.bundleIdentifier == codexBundleIdentifier && !$0.isTerminated
         }) else { return nil }
@@ -1242,7 +1253,7 @@ private final class CodexSurfaceReader {
             appElement,
             attribute: kAXFocusedWindowAttribute
         ), let frame = AccessibilityReader.frame(window) else { return nil }
-        return surface.composerFrame.offsetBy(
+        return surface.anchorFrame.offsetBy(
             dx: frame.minX - surface.windowFrame.minX,
             dy: frame.minY - surface.windowFrame.minY
         )
@@ -1314,6 +1325,9 @@ private final class CodexSurfaceReader {
                 "composerY": $0.composerFrame.minY,
                 "composerWidth": $0.composerFrame.width,
                 "composerHeight": $0.composerFrame.height,
+                "anchorX": $0.anchorFrame.minX,
+                "anchorY": $0.anchorFrame.minY,
+                "anchorPlacement": String(describing: $0.anchorPlacement),
                 "modelMenuOpen": $0.modelMenuOpen,
             ] as [String: Any]
         }
@@ -1361,6 +1375,58 @@ private final class CodexSurfaceReader {
             return text
         })
         return visibleLabels.count >= 2
+    }
+
+    private func preferredAnchor(
+        nodes: [AXNode],
+        composerFrame: CGRect
+    ) -> (frame: CGRect, placement: MeterAnchorPlacement) {
+        if let permission = permissionControl(nodes: nodes, composerFrame: composerFrame) {
+            return (permission, .trailingControl)
+        }
+        if let model = modelControl(nodes: nodes, composerFrame: composerFrame) {
+            return (model, .leadingControl)
+        }
+        return (composerFrame, .composer)
+    }
+
+    private func permissionControl(nodes: [AXNode], composerFrame: CGRect) -> CGRect? {
+        let permissionLabels: Set<String> = ["完全访问", "受限访问", "只读访问", "只读"]
+        return nodes.compactMap { node -> CGRect? in
+            guard let text = node.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  permissionLabels.contains(text),
+                  let frame = node.frame,
+                  isNearComposer(frame, composerFrame: composerFrame)
+            else { return nil }
+            return frame
+        }
+        .max { $0.width * $0.height < $1.width * $1.height }
+    }
+
+    private func modelControl(nodes: [AXNode], composerFrame: CGRect) -> CGRect? {
+        return nodes.compactMap { node -> CGRect? in
+            guard let text = node.text,
+                  isModelLabel(text),
+                  let frame = node.frame,
+                  isNearComposer(frame, composerFrame: composerFrame)
+            else { return nil }
+            return frame
+        }
+        .max(by: { $0.minX < $1.minX })
+    }
+
+    private func isNearComposer(_ frame: CGRect, composerFrame: CGRect) -> Bool {
+        let expandedComposer = composerFrame.insetBy(dx: -28, dy: -64)
+        return expandedComposer.intersects(frame) && frame.width >= 12 && frame.height >= 12
+    }
+
+    private func isModelLabel(_ text: String) -> Bool {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.localizedCaseInsensitiveContains("GPT-") { return true }
+        return normalized.range(
+            of: #"^\d+(?:\.\d+)?\s+(?:Sol|Terra|Spark)\b"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private func enclosingComposerFrame(for node: AXNode) -> CGRect? {
@@ -1947,6 +2013,7 @@ private final class OverlayController {
     private let detailsPanel: NSPanel
     private let toastPanel: NSPanel
     private var anchorFrame = CGRect.zero
+    private var anchorPlacement: MeterAnchorPlacement = .composer
     private var modelMenuOpen = false
     private var toastGeneration = UUID()
 
@@ -1966,8 +2033,13 @@ private final class OverlayController {
         ))
     }
 
-    func update(anchor: CGRect, modelMenuOpen: Bool) {
+    func update(
+        anchor: CGRect,
+        placement: MeterAnchorPlacement,
+        modelMenuOpen: Bool
+    ) {
         anchorFrame = anchor
+        anchorPlacement = placement
         self.modelMenuOpen = modelMenuOpen
         positionPanels()
         pillPanel.orderFrontRegardless()
@@ -2007,25 +2079,28 @@ private final class OverlayController {
     }
 
     private func positionPanels() {
+        let appKitAnchor = appKitFrame(fromAccessibilityFrame: anchorFrame)
         guard let screen = NSScreen.screens.first(where: {
-            let topLeftFrame = CGRect(
-                x: $0.frame.minX,
-                y: NSScreen.screens.map(\.frame.maxY).max()! - $0.frame.maxY,
-                width: $0.frame.width,
-                height: $0.frame.height
-            )
-            return topLeftFrame.intersects(anchorFrame)
+            $0.frame.intersects(appKitAnchor)
         }) ?? NSScreen.main else { return }
 
-        let globalTop = NSScreen.screens.map(\.frame.maxY).max() ?? screen.frame.maxY
         let pillSize = pillPanel.frame.size
-        let horizontalInset: CGFloat = modelMenuOpen ? 305 : 245
-        let pillX = min(
-            screen.visibleFrame.maxX - pillSize.width - 8,
-            max(screen.visibleFrame.minX + 8, anchorFrame.maxX - horizontalInset)
-        )
-        let insideComposer = globalTop - anchorFrame.maxY + 37 - pillSize.height
-        let pillY = max(screen.visibleFrame.minY + 6, insideComposer)
+        let edgePadding: CGFloat = 8
+        let controlGap: CGFloat = 6
+        let pillX: CGFloat
+        let pillY: CGFloat
+        switch anchorPlacement {
+        case .trailingControl:
+            pillX = clamp(appKitAnchor.maxX + controlGap, lower: screen.visibleFrame.minX + edgePadding, upper: screen.visibleFrame.maxX - pillSize.width - edgePadding)
+            pillY = clamp(appKitAnchor.midY - pillSize.height / 2, lower: screen.visibleFrame.minY + edgePadding, upper: screen.visibleFrame.maxY - pillSize.height - edgePadding)
+        case .leadingControl:
+            pillX = clamp(appKitAnchor.minX - pillSize.width - controlGap, lower: screen.visibleFrame.minX + edgePadding, upper: screen.visibleFrame.maxX - pillSize.width - edgePadding)
+            pillY = clamp(appKitAnchor.midY - pillSize.height / 2, lower: screen.visibleFrame.minY + edgePadding, upper: screen.visibleFrame.maxY - pillSize.height - edgePadding)
+        case .composer:
+            let horizontalInset: CGFloat = modelMenuOpen ? 305 : 245
+            pillX = clamp(appKitAnchor.maxX - horizontalInset, lower: screen.visibleFrame.minX + edgePadding, upper: screen.visibleFrame.maxX - pillSize.width - edgePadding)
+            pillY = clamp(appKitAnchor.minY + 37 - pillSize.height, lower: screen.visibleFrame.minY + 6, upper: screen.visibleFrame.maxY - pillSize.height - edgePadding)
+        }
         pillPanel.setFrameOrigin(NSPoint(x: pillX, y: pillY))
 
         let detailSize = detailsPanel.frame.size
@@ -2039,6 +2114,15 @@ private final class OverlayController {
         )
         detailsPanel.setFrameOrigin(NSPoint(x: detailX, y: detailY))
         positionToast()
+    }
+
+    private func appKitFrame(fromAccessibilityFrame frame: CGRect) -> CGRect {
+        let globalTop = NSScreen.screens.map(\.frame.maxY).max() ?? NSScreen.main?.frame.maxY ?? 0
+        return CGRect(x: frame.minX, y: globalTop - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    private func clamp(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
+        min(upper, max(lower, value))
     }
 
     private func positionToast() {
@@ -2202,7 +2286,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
         lastSurface = surface
         model.statusText = "\(snapshot.threadName) · \(TokenFormatter.percent(snapshot.usedPercent))"
         overlay.update(
-            anchor: surface.composerFrame,
+            anchor: surface.anchorFrame,
+            placement: surface.anchorPlacement,
             modelMenuOpen: surface.modelMenuOpen
         )
         writeDiagnostic(accessibilityTrusted: true, snapshot: snapshot)
@@ -2212,9 +2297,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == codexBundleIdentifier,
               AccessibilityReader.trusted(prompt: false),
               let surface = lastSurface,
-              let composerFrame = surfaceReader.translatedComposerFrame(from: surface)
+              let anchorFrame = surfaceReader.translatedAnchorFrame(from: surface)
         else { return }
-        overlay.updatePosition(anchor: composerFrame)
+        overlay.updatePosition(anchor: anchorFrame)
     }
 
     private func refreshAccountQuotaIfNeeded() {
