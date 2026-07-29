@@ -83,7 +83,12 @@ function quotaLabel(window, fallback) {
 
 function resetText(timestamp) {
   if (!timestamp) return "";
-  return `重置 ${new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  return `重置 ${new Date(timestamp).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
 }
 
 function renderRing(snapshot) {
