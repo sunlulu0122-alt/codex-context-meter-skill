@@ -42,6 +42,7 @@ function handoffStatus(status) {
     failed: "失败待重试",
     retry_wait: "等待重试",
     pending: "待交接",
+    disabled: "已关闭",
   };
   return labels[status] || "未触发";
 }
@@ -92,7 +93,7 @@ function renderRing(snapshot) {
   progress.style.setProperty("--progress", `${Math.min(100, used)}%`);
   progress.style.setProperty("--ring-color", color);
   document.getElementById("meter-ring").title = snapshot
-    ? `${percent(used)} · ${compact(snapshot.usedTokens)} / ${compact(snapshot.contextWindow)} 上下文已使用`
+    ? `${percent(used)} · ${compact(snapshot.usedTokens)} / ${compact(snapshot.contextWindow)} 上下文已用`
     : "等待 Codex 对话";
 }
 
@@ -100,7 +101,7 @@ function renderDetails(snapshot) {
   if (!snapshot) return;
   document.getElementById("used-percent").textContent = percent(snapshot.usedPercent);
   document.getElementById("used-count").textContent =
-    `已使用  ${compact(snapshot.usedTokens)} / ${compact(snapshot.contextWindow)}`;
+    `上下文已用  ${compact(snapshot.usedTokens)} / ${compact(snapshot.contextWindow)}`;
   document.getElementById("usage-fill").style.width = `${snapshot.usedPercent}%`;
   document.getElementById("source-label").textContent = `真实只读数据 · ${snapshot.threadName}`;
 
@@ -114,10 +115,10 @@ function renderDetails(snapshot) {
   });
   addRow(rows, {
     color: palette.yellow,
-    label: "自动交接",
+    label: "自动创建新任务",
     value: handoffStatus(snapshot.automaticHandoffStatus),
-    secondary: `阈值 ${snapshot.automaticHandoffThreshold || 80}%`,
-    help: "只按仪表读取到的真实上下文比例触发。达到 80% 后等待当前任务完成，再保存标准交接包、新建并打开下一任务；读取不到精确比例时不触发。",
+    secondary: snapshot.automaticHandoffEnabled === false ? "已关闭" : `已用 ${snapshot.automaticHandoffThreshold || 80}%`,
+    help: "只按已用上下文比例触发，绝不按剩余比例。达到阈值后等待当前任务完成，再保存交接包并创建新任务；读取不到精确比例时不触发。",
   });
   if (snapshot.taskEstimate) {
     section(rows, "当前任务");
@@ -139,7 +140,7 @@ function renderDetails(snapshot) {
         : "当前对话的历史完成样本不足，暂不生成时间。",
     });
   }
-  section(rows, "技术明细");
+  section(rows, "上下文用量明细");
   const technical = [
     [palette.purple, "新输入", snapshot.freshInputTokens, "本轮需要模型重新读取和处理的输入 Token。"],
     [palette.blue, "缓存输入", snapshot.cachedInputTokens, "与之前内容重复、由系统缓存复用的输入 Token。"],
@@ -201,7 +202,11 @@ document.body.addEventListener("mouseenter", () => window.contextMeter.setHovere
 document.body.addEventListener("mouseleave", () => window.contextMeter.setHovered(source, false));
 window.contextMeter.onSnapshot((snapshot) => {
   if (isRing) renderRing(snapshot);
-  else renderDetails(snapshot);
+  else {
+    const toggle = document.getElementById("automatic-handoff-enabled");
+    if (snapshot && toggle) toggle.checked = snapshot.automaticHandoffEnabled !== false;
+    renderDetails(snapshot);
+  }
 });
 
 if (isRing) {
@@ -211,5 +216,8 @@ if (isRing) {
 } else {
   document.getElementById("close-details").addEventListener("click", () => {
     window.contextMeter.closeDetails();
+  });
+  document.getElementById("automatic-handoff-enabled").addEventListener("change", (event) => {
+    window.contextMeter.setAutomaticHandoffEnabled(event.target.checked);
   });
 }

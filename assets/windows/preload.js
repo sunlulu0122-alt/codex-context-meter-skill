@@ -10,4 +10,7 @@ contextBridge.exposeInMainWorld("contextMeter", {
   closeDetails() {
     ipcRenderer.send("close-details");
   },
+  setAutomaticHandoffEnabled(enabled) {
+    ipcRenderer.send("set-automatic-handoff-enabled", Boolean(enabled));
+  },
 });
