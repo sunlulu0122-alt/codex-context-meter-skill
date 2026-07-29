@@ -9,6 +9,7 @@ private let contextMeterBundleIdentifier = "com.sunlulu.codex-context-meter"
 private let maxRolloutTailBytes = 2 * 1024 * 1024
 private let defaultAutomaticHandoffThreshold = 80.0
 private let automaticHandoffThresholdDefaultsKey = "automaticHandoff.thresholdPercent"
+private let automaticHandoffEnabledDefaultsKey = "automaticHandoff.enabled"
 
 private enum CodexExecutableLocator {
     static func locate() -> URL? {
@@ -1193,6 +1194,7 @@ private enum AccessibilityReader {
 
 private struct CodexSurface {
     let composerFrame: CGRect
+    let windowFrame: CGRect
     let thread: ThreadIndexEntry
     let modelMenuOpen: Bool
 }
@@ -1214,17 +1216,35 @@ private final class CodexSurfaceReader {
             appElement,
             attribute: kAXFocusedWindowAttribute
         ) else { return nil }
+        guard let windowFrame = AccessibilityReader.frame(window) else { return nil }
         let nodes = AccessibilityReader.nodes(root: window)
-        guard let composer = composerNode(nodes: nodes)
-            ?? AccessibilityReader.frame(window).map(inferredComposerFrame)
-        else { return nil }
+        let composer = composerNode(nodes: nodes)
+            ?? inferredComposerFrame(windowFrame: windowFrame)
         guard let thread = selectedThread(nodes: nodes, window: window)
             ?? store.mostRecentlyWrittenThread(maxAge: 60 * 60)
         else { return nil }
         return CodexSurface(
             composerFrame: composer,
+            windowFrame: windowFrame,
             thread: thread,
             modelMenuOpen: isModelMenuOpen(nodes: nodes)
+        )
+    }
+
+    /// Window dragging only changes the focused-window frame. Reusing the
+    /// last verified composer offset avoids a full AX tree walk while dragging.
+    func translatedComposerFrame(from surface: CodexSurface) -> CGRect? {
+        guard let application = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == codexBundleIdentifier && !$0.isTerminated
+        }) else { return nil }
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        guard let window: AXUIElement = AccessibilityReader.element(
+            appElement,
+            attribute: kAXFocusedWindowAttribute
+        ), let frame = AccessibilityReader.frame(window) else { return nil }
+        return surface.composerFrame.offsetBy(
+            dx: frame.minX - surface.windowFrame.minX,
+            dy: frame.minY - surface.windowFrame.minY
         )
     }
 
@@ -1416,6 +1436,7 @@ private final class MeterViewModel: ObservableObject {
     @Published var automaticHandoffStatus = "inactive"
     @Published var automaticHandoffTriggerPercent: Double?
     @Published private(set) var automaticHandoffThreshold: Double
+    @Published private(set) var automaticHandoffEnabled: Bool
     @Published var isExpanded = false
     @Published var statusText = "等待 Codex 对话"
     private var hoverGeneration = UUID()
@@ -1426,6 +1447,9 @@ private final class MeterViewModel: ObservableObject {
         automaticHandoffThreshold = MeterViewModel.normalizedThreshold(
             stored ?? defaultAutomaticHandoffThreshold
         )
+        automaticHandoffEnabled = UserDefaults.standard.object(
+            forKey: automaticHandoffEnabledDefaultsKey
+        ) as? Bool ?? true
     }
 
     func setAutomaticHandoffThreshold(_ value: Double) {
@@ -1436,6 +1460,11 @@ private final class MeterViewModel: ObservableObject {
 
     func restoreDefaultAutomaticHandoffThreshold() {
         setAutomaticHandoffThreshold(defaultAutomaticHandoffThreshold)
+    }
+
+    func setAutomaticHandoffEnabled(_ enabled: Bool) {
+        automaticHandoffEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: automaticHandoffEnabledDefaultsKey)
     }
 
     private static func normalizedThreshold(_ value: Double) -> Double {
@@ -1607,6 +1636,7 @@ private struct MeterDetailsView: View {
         case "failed": return "失败待重试"
         case "retry_wait": return "等待重试"
         case "pending": return "待交接"
+        case "disabled": return "已关闭"
         default: return "未触发"
         }
     }
@@ -1615,7 +1645,7 @@ private struct MeterDetailsView: View {
         if let snapshot = model.snapshot {
             VStack(alignment: .leading, spacing: 13) {
                 HStack {
-                    Text("上下文用量")
+                    Text("上下文窗口")
                         .font(.system(size: 13, weight: .semibold))
                     Spacer()
                     Button(action: onClose) {
@@ -1632,7 +1662,7 @@ private struct MeterDetailsView: View {
                     Text(TokenFormatter.percent(snapshot.usedPercent))
                         .font(.system(size: 23, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                    Text("已使用  \(TokenFormatter.compact(snapshot.usage.totalTokens)) / \(TokenFormatter.compact(snapshot.contextWindow))")
+                    Text("上下文已用  \(TokenFormatter.compact(snapshot.usage.totalTokens)) / \(TokenFormatter.compact(snapshot.contextWindow))")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.secondary)
                         .monospacedDigit()
@@ -1664,15 +1694,24 @@ private struct MeterDetailsView: View {
                 )
                 MetricRow(
                     color: Color(hex: 0xF0B44D),
-                    label: "自动交接",
+                    label: "自动创建新任务",
                     value: handoffStatusText(model.automaticHandoffStatus),
                     secondary: model.automaticHandoffTriggerPercent.map {
                         "已于 \(TokenFormatter.percent($0)) 触发"
                     } ?? "阈值 \(Int(model.automaticHandoffThreshold))%",
-                    explanation: "只按已用上下文比例触发，绝不按剩余比例。达到设置阈值后等待当前任务完成，再保存标准交接包、新建并打开下一任务；读取不到精确比例时不触发。"
+                    explanation: "只按已用上下文比例触发，绝不按剩余比例。达到设置阈值后等待当前任务完成，再保存交接包并创建新任务；读取不到精确比例时不触发。"
                 )
+                Toggle(
+                    "自动创建新任务",
+                    isOn: Binding(
+                        get: { model.automaticHandoffEnabled },
+                        set: { model.setAutomaticHandoffEnabled($0) }
+                    )
+                )
+                .font(.system(size: 11.5))
+                .toggleStyle(.switch)
                 HStack(spacing: 8) {
-                    Text("交接阈值")
+                    Text("新任务阈值")
                         .font(.system(size: 11.5))
                     Slider(
                         value: Binding(
@@ -1738,7 +1777,7 @@ private struct MeterDetailsView: View {
                 if let modelName = snapshot.modelName {
                     MetricRow(
                         color: Color(hex: 0x9BA4B3),
-                        label: "当前模型",
+                        label: "模型",
                         value: modelDisplayName(modelName),
                         explanation: "本次对话当前使用的模型名称，不代表账户总额度。"
                     )
@@ -1904,6 +1943,11 @@ private final class OverlayController {
         if model.isExpanded { detailsPanel.orderFrontRegardless() }
     }
 
+    func updatePosition(anchor: CGRect) {
+        anchorFrame = anchor
+        positionPanels()
+    }
+
     func syncExpandedState() {
         detailsPanel.setIsVisible(model.isExpanded && pillPanel.isVisible)
         if model.isExpanded {
@@ -2008,12 +2052,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
     private var overlay: OverlayController!
     private var statusItem: NSStatusItem!
     private var timer: Timer?
+    private var positionTimer: Timer?
     private var lastDiagnosticSignature: String?
     private var lastQuotaRefresh = Date.distantPast
     private var accountFetchInFlight = false
     private var lastAccountError: String?
     private var handoffThreadsInFlight = Set<String>()
     private var handoffStatusByThread: [String: String] = [:]
+    private var lastSurface: CodexSurface?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -2035,10 +2081,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             self?.refresh()
             self?.refreshAccountQuotaIfNeeded()
         }
+        positionTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.refreshOverlayPosition()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
+        positionTimer?.invalidate()
     }
 
     private var subscriptions = Set<AnyCancellable>()
@@ -2061,7 +2111,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
         menu.addItem(status)
         if let snapshot = model.snapshot {
             let summary = NSMenuItem(
-                title: "已使用 \(TokenFormatter.percent(snapshot.usedPercent)) · 剩余 \(TokenFormatter.compact(snapshot.remainingTokens))",
+                title: "上下文已用 \(TokenFormatter.percent(snapshot.usedPercent)) · 剩余 \(TokenFormatter.compact(snapshot.remainingTokens))",
                 action: nil,
                 keyEquivalent: ""
             )
@@ -2079,6 +2129,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
         let isCodexFrontmost =
             NSWorkspace.shared.frontmostApplication?.bundleIdentifier == codexBundleIdentifier
         guard isCodexFrontmost else {
+            lastSurface = nil
             writeDiagnostic(accessibilityTrusted: AccessibilityReader.trusted(prompt: false))
             overlay.hide()
             return
@@ -2098,6 +2149,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
                   threadName: surface.thread.name
               )
         else {
+            lastSurface = nil
             model.statusText = "当前对话没有可验证用量"
             model.snapshot = nil
             writeDiagnostic(accessibilityTrusted: true)
@@ -2115,12 +2167,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             threadId: snapshot.threadId
         )
         model.snapshot = snapshot
+        lastSurface = surface
         model.statusText = "\(snapshot.threadName) · \(TokenFormatter.percent(snapshot.usedPercent))"
         overlay.update(
             anchor: surface.composerFrame,
             modelMenuOpen: surface.modelMenuOpen
         )
         writeDiagnostic(accessibilityTrusted: true, snapshot: snapshot)
+    }
+
+    private func refreshOverlayPosition() {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == codexBundleIdentifier,
+              AccessibilityReader.trusted(prompt: false),
+              let surface = lastSurface,
+              let composerFrame = surfaceReader.translatedComposerFrame(from: surface)
+        else { return }
+        overlay.updatePosition(anchor: composerFrame)
     }
 
     private func refreshAccountQuotaIfNeeded() {
@@ -2297,6 +2359,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
         let pendingNoticeKey = "automaticHandoff.pendingNotice.\(snapshot.threadId)"
         let attemptKey = "automaticHandoff.lastAttempt.\(snapshot.threadId)"
         let triggerKey = "automaticHandoff.triggerPercent.\(snapshot.threadId)"
+
+        guard model.automaticHandoffEnabled else {
+            defaults.set(false, forKey: pendingKey)
+            handoffStatusByThread[snapshot.threadId] = "disabled"
+            return
+        }
 
         if !(defaults.string(forKey: completedKey) ?? "").isEmpty {
             handoffStatusByThread[snapshot.threadId] = "completed"
