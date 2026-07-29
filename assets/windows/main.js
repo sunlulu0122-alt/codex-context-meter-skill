@@ -16,6 +16,7 @@ const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const SUPPORT_DIR = path.join(app.getPath("appData"), "Codex Context Meter");
 const MAX_TAIL_BYTES = 2 * 1024 * 1024;
 const AUTOMATIC_HANDOFF_THRESHOLD = 80;
+const AUTOMATIC_HANDOFF_ENABLED_DEFAULT = true;
 let ringWindow;
 let detailsWindow;
 let currentSnapshot = null;
@@ -736,6 +737,7 @@ function notifyCompaction(snapshot) {
 function automaticHandoffStatus(snapshot) {
   if (!snapshot) return "inactive";
   const state = readState();
+  if (state.automaticHandoffEnabled === false) return "disabled";
   if (state[`handoffCompleted:${snapshot.threadId}`]) return "completed";
   if (handoffThreadsInFlight.has(snapshot.threadId)) return "creating";
   if (state[`handoffPending:${snapshot.threadId}`]) {
@@ -750,6 +752,11 @@ async function considerAutomaticHandoff(snapshot, rollout, executable) {
   const completedKey = `handoffCompleted:${snapshot.threadId}`;
   const noticeKey = `handoffPendingNotice:${snapshot.threadId}`;
   const attemptKey = `handoffLastAttempt:${snapshot.threadId}`;
+  if (state.automaticHandoffEnabled === false) {
+    state[pendingKey] = false;
+    writeState(state);
+    return;
+  }
   if (state[completedKey]) return;
   if (snapshot.usedPercent >= AUTOMATIC_HANDOFF_THRESHOLD) {
     state[pendingKey] = true;
@@ -759,8 +766,8 @@ async function considerAutomaticHandoff(snapshot, rollout, executable) {
     if (!state[noticeKey]) {
       state[noticeKey] = true;
       new Notification({
-        title: "Codex 已达到 80%，准备交接",
-        body: `${snapshot.threadName} 将在当前任务安全完成后生成交接包并新建任务。`,
+        title: "Codex 上下文已达到 80%，准备创建新任务",
+        body: `${snapshot.threadName} 将在当前任务安全完成后保存交接包并创建新任务。`,
       }).show();
     }
     writeState(state);
@@ -784,7 +791,7 @@ async function considerAutomaticHandoff(snapshot, rollout, executable) {
     try {
       await shell.openExternal(`codex://threads/${newThreadId}`);
       new Notification({
-        title: "Codex 自动交接已完成",
+        title: "Codex 已创建新任务",
         body: "已保存交接包并打开下一任务。",
       }).show();
     } catch {
@@ -828,11 +835,13 @@ function positionWindows(info) {
 }
 
 function sendSnapshot() {
+  const state = readState();
   const payload = currentSnapshot
     ? {
         ...currentSnapshot,
         accountQuota,
         automaticHandoffThreshold: AUTOMATIC_HANDOFF_THRESHOLD,
+        automaticHandoffEnabled: state.automaticHandoffEnabled ?? AUTOMATIC_HANDOFF_ENABLED_DEFAULT,
         automaticHandoffStatus: automaticHandoffStatus(currentSnapshot),
       }
     : null;
@@ -939,6 +948,12 @@ app.whenReady().then(() => {
   ipcMain.on("close-details", () => {
     hoverGeneration += 1;
     detailsWindow.hide();
+  });
+  ipcMain.on("set-automatic-handoff-enabled", (_event, enabled) => {
+    const state = readState();
+    state.automaticHandoffEnabled = Boolean(enabled);
+    writeState(state);
+    sendSnapshot();
   });
   refresh();
   setInterval(refresh, 3_000);
