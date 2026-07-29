@@ -1652,7 +1652,7 @@ private struct MeterDetailsView: View {
     }
 
     private func resetText(_ date: Date?) -> String? {
-        date.map { "重置 \($0.formatted(date: .omitted, time: .shortened))" }
+        date.map { "重置 \($0.formatted(date: .abbreviated, time: .shortened))" }
     }
 
     private func handoffStatusText(_ status: String) -> String {
