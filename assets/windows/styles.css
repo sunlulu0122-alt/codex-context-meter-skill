@@ -132,6 +132,20 @@ header button {
   background: var(--purple);
 }
 
+.handoff-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  margin: 0 0 5px;
+  color: rgb(29 31 36 / 82%);
+  font-size: 12px;
+}
+
+.handoff-toggle input {
+  accent-color: var(--green);
+}
+
 .section-label {
   margin: 11px 0 7px;
   padding-top: 10px;
@@ -206,6 +220,10 @@ footer::before {
   }
 
   .metric-row .label {
+    color: rgb(245 246 248 / 86%);
+  }
+
+  .handoff-toggle {
     color: rgb(245 246 248 / 86%);
   }
 
