@@ -18,8 +18,10 @@
       </section>
       <div class="usage-bar"><span id="usage-fill"></span></div>
       <label class="handoff-toggle">
-        <span>自动创建新任务</span>
-        <input id="automatic-handoff-enabled" type="checkbox" checked />
+        <span class="handoff-status-dot"></span>
+        <span class="handoff-copy"><strong>自动创建新任务</strong><small id="automatic-handoff-status">已开启 · 到达阈值后自动续接</small></span>
+        <span class="spacer"></span>
+        <input id="automatic-handoff-enabled" type="checkbox" checked aria-label="自动创建新任务" />
       </label>
       <div id="metric-rows"></div>
       <footer id="source-label">真实只读数据</footer>
