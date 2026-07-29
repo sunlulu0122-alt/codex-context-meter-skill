@@ -135,15 +135,46 @@ header button {
 .handoff-toggle {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 28px;
-  margin: 0 0 5px;
+  min-height: 48px;
+  gap: 8px;
+  margin: 0 0 7px;
+  padding: 7px 10px;
   color: rgb(29 31 36 / 82%);
+  border-radius: 9px;
+  background: rgb(0 0 0 / 5.5%);
   font-size: 12px;
+}
+
+.handoff-toggle.is-enabled {
+  background: rgb(24 184 147 / 11%);
+}
+
+.handoff-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--gray);
+}
+
+.handoff-toggle.is-enabled .handoff-status-dot {
+  background: var(--green);
+}
+
+.handoff-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.handoff-copy small {
+  color: #7c838d;
+  font-size: 10.5px;
 }
 
 .handoff-toggle input {
   accent-color: var(--green);
+  width: 32px;
+  height: 18px;
 }
 
 .section-label {
@@ -225,6 +256,15 @@ footer::before {
 
   .handoff-toggle {
     color: rgb(245 246 248 / 86%);
+    background: rgb(255 255 255 / 8%);
+  }
+
+  .handoff-toggle.is-enabled {
+    background: rgb(24 184 147 / 16%);
+  }
+
+  .handoff-copy small {
+    color: #b7bdc7;
   }
 
   .usage-bar {
