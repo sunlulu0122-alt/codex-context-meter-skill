@@ -206,9 +206,6 @@ window.contextMeter.onSnapshot((snapshot) => {
     const toggle = document.getElementById("automatic-handoff-enabled");
     const enabled = snapshot?.automaticHandoffEnabled !== false;
     if (snapshot && toggle) toggle.checked = enabled;
-    document.getElementById("automatic-handoff-status").textContent = enabled
-      ? "已开启 · 到达阈值后自动续接"
-      : "已关闭 · 不会自动创建新任务";
     document.querySelector(".handoff-toggle").classList.toggle("is-enabled", enabled);
     renderDetails(snapshot);
   }

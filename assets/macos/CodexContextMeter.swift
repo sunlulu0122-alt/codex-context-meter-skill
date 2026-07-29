@@ -1486,6 +1486,33 @@ private final class MeterViewModel: ObservableObject {
     }
 }
 
+private struct ContextMeterToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            Capsule()
+                .fill(configuration.isOn ? Color(hex: 0xE6F6DF) : Color(hex: 0xE8EAED))
+                .overlay(
+                    Capsule().stroke(
+                        configuration.isOn ? Color(hex: 0xB9E5A5) : Color(hex: 0xC9CDD3),
+                        lineWidth: 1
+                    )
+                )
+                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                    Circle()
+                        .fill(configuration.isOn ? Color(hex: 0x78C850) : Color.white)
+                        .shadow(color: Color.black.opacity(0.18), radius: 1, y: 1)
+                        .padding(2)
+                }
+                .frame(width: 32, height: 18)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("自动创建新任务")
+        .accessibilityValue(configuration.isOn ? "已开启" : "已关闭")
+    }
+}
+
 private extension Color {
     init(hex: UInt32, opacity: Double = 1) {
         self.init(
@@ -1701,37 +1728,20 @@ private struct MeterDetailsView: View {
                     } ?? "阈值 \(Int(model.automaticHandoffThreshold))%",
                     explanation: "只按已用上下文比例触发，绝不按剩余比例。达到设置阈值后等待当前任务完成，再保存交接包并创建新任务；读取不到精确比例时不触发。"
                 )
-                HStack(spacing: 9) {
-                    Circle()
-                        .fill(model.automaticHandoffEnabled ? Color(hex: 0x18B893) : Color(hex: 0x9BA4B3))
-                        .frame(width: 8, height: 8)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("自动创建新任务")
-                            .font(.system(size: 11.5, weight: .semibold))
-                        Text(model.automaticHandoffEnabled ? "已开启 · 到达阈值后自动续接" : "已关闭 · 不会自动创建新任务")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Color.secondary)
-                    }
-                    Spacer(minLength: 8)
+                HStack(spacing: 8) {
+                    Text("自动创建新任务")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Spacer()
                     Toggle(
-                        model.automaticHandoffEnabled ? "已开启" : "已关闭",
+                        "自动创建新任务",
                         isOn: Binding(
                             get: { model.automaticHandoffEnabled },
                             set: { model.setAutomaticHandoffEnabled($0) }
                         )
                     )
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(model.automaticHandoffEnabled ? Color(hex: 0x18B893) : Color(hex: 0x737A85))
+                    .toggleStyle(ContextMeterToggleStyle())
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    model.automaticHandoffEnabled
-                        ? Color(hex: 0x18B893).opacity(0.11)
-                        : Color.black.opacity(0.055),
-                    in: RoundedRectangle(cornerRadius: 9)
-                )
                 HStack(spacing: 8) {
                     Text("新任务阈值")
                         .font(.system(size: 11.5))
