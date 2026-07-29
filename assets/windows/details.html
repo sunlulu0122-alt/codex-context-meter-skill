@@ -9,7 +9,7 @@
   <body class="details-page">
     <main id="details-card" class="details-card">
       <header>
-        <strong>上下文用量</strong>
+        <strong>上下文窗口</strong>
         <button id="close-details" type="button" aria-label="关闭">×</button>
       </header>
       <section class="headline">
@@ -17,6 +17,10 @@
         <span id="used-count">等待 Codex 对话</span>
       </section>
       <div class="usage-bar"><span id="usage-fill"></span></div>
+      <label class="handoff-toggle">
+        <span>自动创建新任务</span>
+        <input id="automatic-handoff-enabled" type="checkbox" checked />
+      </label>
       <div id="metric-rows"></div>
       <footer id="source-label">真实只读数据</footer>
     </main>
