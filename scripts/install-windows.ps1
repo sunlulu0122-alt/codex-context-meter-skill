@@ -1,7 +1,8 @@
 param(
     [switch]$AllowLocalSource,
-    [string]$InstallerPath = "",
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$UseElectronFallback,
+    [string]$InstallerPath = ""
 )
 
 . (Join-Path $PSScriptRoot "common-windows.ps1")
@@ -9,37 +10,59 @@ Assert-Windows
 Assert-SupportedWindowsArchitecture
 Assert-SourceOrigin -AllowLocalSource:$AllowLocalSource
 
-$downloaded = $false
-if (-not $InstallerPath) {
-    $InstallerPath = Join-Path ([System.IO.Path]::GetTempPath()) "CodexContextMeter-Windows-Setup-1.3.0.exe"
-    $url = "https://github.com/sunlulu0122-alt/codex-context-meter-skill/releases/download/v1.3.0/CodexContextMeter-Windows-Setup-1.3.0.exe"
-    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $InstallerPath
-    $downloaded = $true
+if ($UseElectronFallback) {
+    if (-not $InstallerPath) {
+        Stop-WithError "Electron 回退版必须显式提供 -InstallerPath；不会从私有仓库猜测或匿名下载。"
+    }
+    Assert-FileSha256 -Path $InstallerPath -Expected $script:ExpectedInstallerSha256
+    Write-Warning "正在安装约 95MB 的 Electron 兼容回退版；它没有 Authenticode 发布者签名。"
+    $process = Start-Process -FilePath $InstallerPath -ArgumentList "/S" -Wait -PassThru
+    if ($process.ExitCode -ne 0) { Stop-WithError "Electron 安装器退出码为 $($process.ExitCode)。" }
+    Write-Output "Electron 兼容回退版安装完成。"
+    exit 0
 }
 
+$nativeDir = Join-Path $script:SkillDir "assets\windows-native"
+$buildScript = Join-Path $nativeDir "build.ps1"
+$sourceFile = Join-Path $nativeDir "CodexContextMeter.cs"
+if (-not (Test-Path -LiteralPath $buildScript) -or -not (Test-Path -LiteralPath $sourceFile)) {
+    Stop-WithError "Skill 缺少 Windows 原生版源码或构建脚本。"
+}
+Assert-BundledAssetHash "assets\windows-native\CodexContextMeter.cs"
+Assert-BundledAssetHash "assets\windows-native\build.ps1"
+
+$tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-context-meter-native-" + [Guid]::NewGuid().ToString("N"))
+$tempExe = Join-Path $tempDir "CodexContextMeter.exe"
+$installDir = $script:NativeInstallDir
+$target = Join-Path $installDir "CodexContextMeter.exe"
+New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 try {
-    Assert-FileSha256 -Path $InstallerPath -Expected $script:ExpectedInstallerSha256
-    Write-Warning "此 1.3.0 安装器没有 Authenticode 发布者签名；可信性依赖上方已验证的固定 SHA-256。"
-    $process = Start-Process -FilePath $InstallerPath -ArgumentList "/S" -Wait -PassThru
-    if ($process.ExitCode -ne 0) {
-        Stop-WithError "Windows 安装器退出码为 $($process.ExitCode)。"
+    & $buildScript -OutputPath $tempExe
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $tempExe)) {
+        Stop-WithError "原生版本机编译失败。可在确认旧安装器校验值后显式使用 -UseElectronFallback。"
     }
-    $executable = Get-InstalledExecutable
-    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
-        Stop-WithError "安装器已结束，但没有找到应用：$executable"
+    $bytes = [System.IO.File]::ReadAllBytes($tempExe)
+    if ($bytes.Length -lt 3 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) {
+        Stop-WithError "原生版输出不是有效的 Windows PE 文件。"
     }
+    Get-Process CodexContextMeter -ErrorAction SilentlyContinue | Stop-Process -Force
+    New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+    Copy-Item -LiteralPath $tempExe -Destination $target -Force
+    $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    New-Item -Path $runKey -Force | Out-Null
+    New-ItemProperty -Path $runKey -Name "CodexContextMeter" -Value ('"{0}"' -f $target) -PropertyType String -Force | Out-Null
     if (-not $NoStart) {
-        Start-Process -FilePath $executable
-        Start-Sleep -Seconds 3
-        $processName = [System.IO.Path]::GetFileNameWithoutExtension($executable)
-        if (-not (Get-Process -Name $processName -ErrorAction SilentlyContinue)) {
-            Stop-WithError "应用已安装，但进程验证失败。"
+        Start-Process -FilePath $target
+        Start-Sleep -Seconds 2
+        if (-not (Get-Process CodexContextMeter -ErrorAction SilentlyContinue)) {
+            Stop-WithError "原生应用已安装，但进程验证失败。"
         }
     }
-    Write-Output "安装完成：$executable"
-    Write-Output "登录启动：应用已调用 Electron setLoginItemSettings(openAtLogin=true)。"
+    $hash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Output "Windows 轻量原生版安装完成：$target"
+    Write-Output "安装体积：$((Get-Item $target).Length) bytes"
+    Write-Output "SHA-256：$hash"
+    Write-Output "登录启动：HKCU Run（仅当前用户）。"
 } finally {
-    if ($downloaded -and (Test-Path -LiteralPath $InstallerPath)) {
-        Remove-Item -LiteralPath $InstallerPath -Force
-    }
+    if (Test-Path -LiteralPath $tempDir) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
 }
