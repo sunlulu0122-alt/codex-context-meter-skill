@@ -13,7 +13,7 @@ Operate only through the bundled deterministic scripts. Preserve user data and r
 - Never write any Codex SQLite database.
 - Never disable Gatekeeper, antivirus, execution policy, or another system-wide security control.
 - Describe the macOS app as locally ad-hoc signed, not Apple-notarized.
-- Describe the Windows 1.3.0 installer as publisher-unsigned and protected by the pinned SHA-256 check, not Authenticode-signed.
+- Describe the Windows 1.4 native app as locally compiled from bundled source and not Authenticode-signed. The older Electron installer is an explicit compatibility fallback only and remains protected by its pinned SHA-256 check.
 - Let the user grant Accessibility permission personally. Open the correct Settings page when requested, but never claim permission was granted without verification.
 - Treat displayed percentages, quotas, task ETA, and task state as valid only when the app obtained their documented real signals. Do not invent substitutes.
 - Disclose that the 80% automatic handoff feature is not read-only: after the current task finishes, it writes a local handoff package and uses the official Codex App Server to create and open the next task. It does not interrupt, archive, or delete the source task.
@@ -24,7 +24,7 @@ Detect the host OS first:
 
 - On macOS, run the matching `scripts/*-macos.sh`.
 - On Windows, run the matching `scripts/*-windows.ps1` from PowerShell.
-- On another OS, stop and explain that version 1.3.0 supports only macOS and Windows.
+- On another OS, stop and explain that the current version supports only macOS and Windows.
 
 Use `install` for a first installation or repair, `diagnose` for inspection, `update` for a fast-forward Skill update plus reinstall, and `uninstall` only after the user explicitly requests removal.
 
@@ -58,7 +58,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows.ps
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\diagnose-windows.ps1
 ```
 
-The installer supports Windows x64, verifies the pinned release installer SHA-256, performs a per-user NSIS installation, enables login startup through the app, starts it, and verifies the installed executable/process. `Bypass` applies only to that PowerShell process; do not change machine or user execution policy. Warn that the installer is publisher-unsigned and may show a Windows reputation prompt.
+The default Windows path compiles the bundled C# source with the Windows .NET Framework compiler, producing a small WinForms executable without Electron, Chromium, Node.js, or a large runtime download. It installs only for the current user under `%LOCALAPPDATA%\Codex Context Meter`, creates a current-user login-startup entry, starts the app, and verifies the executable and process. `Bypass` applies only to that PowerShell process; never change machine or user execution policy. Disclose that the locally compiled executable is not Authenticode-signed.
+
+If the Windows .NET Framework compiler is unavailable, stop with the exact error. Use the older Electron installer only when the user explicitly accepts the approximately 95 MB compatibility fallback and provides a verified installer path:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -UseElectronFallback -InstallerPath <verified-path>
+```
 
 ## Diagnose
 

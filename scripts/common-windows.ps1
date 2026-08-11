@@ -5,6 +5,7 @@ $script:SkillDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $script:ExpectedRepository = "https://github.com/sunlulu0122-alt/codex-context-meter-skill"
 $script:ProductName = "Codex 上下文仪表"
 $script:DefaultInstallDir = Join-Path $env:LOCALAPPDATA "Programs\codex-context-meter"
+$script:NativeInstallDir = Join-Path $env:LOCALAPPDATA "Codex Context Meter"
 $script:ExpectedInstallerSha256 = "ff248a8193e17cf94019b5821755f67a20ac54cae208d2c92e5cf901c66b0703"
 
 function Stop-WithError([string]$Message) {
@@ -65,8 +66,21 @@ function Assert-FileSha256([string]$Path, [string]$Expected) {
     Write-Output "SHA-256 已验证：$actual"
 }
 
+function Assert-BundledAssetHash([string]$RelativePath) {
+    $manifest = Join-Path $script:SkillDir "assets\SHA256SUMS"
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+        Stop-WithError "缺少资源校验清单：$manifest"
+    }
+    $normalized = $RelativePath.Replace("\", "/")
+    $line = Get-Content -LiteralPath $manifest | Where-Object { $_ -match ("  " + [regex]::Escape($normalized) + "$") } | Select-Object -First 1
+    if (-not $line) { Stop-WithError "校验清单未登记资源：$normalized" }
+    $expected = ($line -split "\s+", 2)[0]
+    Assert-FileSha256 -Path (Join-Path $script:SkillDir $RelativePath) -Expected $expected
+}
+
 function Get-InstalledExecutable {
     $candidates = @(
+        (Join-Path $script:NativeInstallDir "CodexContextMeter.exe"),
         (Join-Path $script:DefaultInstallDir "$($script:ProductName).exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\Codex Context Meter\$($script:ProductName).exe")
     )
