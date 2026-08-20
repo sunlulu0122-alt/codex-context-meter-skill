@@ -1,6 +1,6 @@
 {
   "name": "codex-context-meter",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Codex 上下文与设置额度只读仪表",
   "main": "main.js",
   "author": "sunlulu0122-alt",

@@ -231,6 +231,10 @@ namespace CodexContextMeterNative {
         && trigger <= 100;
       if (hasValidCompletion) return;
       if (state.Completed.ContainsKey(s.ThreadId)) state.Completed.Remove(s.ThreadId);
+      var hasValidTrigger = state.TriggerPercent.TryGetValue(s.ThreadId, out trigger)
+        && trigger >= state.AutomaticHandoffThreshold
+        && trigger <= 100;
+      if (!hasValidTrigger) state.Pending.Remove(s.ThreadId);
       if (s.UsedPercent >= state.AutomaticHandoffThreshold) {
         if (!state.Pending.ContainsKey(s.ThreadId) || !state.Pending[s.ThreadId]) state.TriggerPercent[s.ThreadId] = s.UsedPercent;
         state.Pending[s.ThreadId] = true;

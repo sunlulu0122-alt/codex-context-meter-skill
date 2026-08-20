@@ -2497,6 +2497,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             // to have triggered a handoff or suppress a future valid trigger.
             defaults.removeObject(forKey: completedKey)
         }
+        if defaults.bool(forKey: pendingKey),
+           (automaticHandoffTriggerPercent(threadId: snapshot.threadId) ?? 0) < model.automaticHandoffThreshold {
+            // A pending flag without a real threshold crossing is stale state
+            // from an older build and must never create a task at low usage.
+            defaults.set(false, forKey: pendingKey)
+            defaults.removeObject(forKey: pendingNoticeKey)
+        }
         if snapshot.usedPercent >= model.automaticHandoffThreshold {
             if !defaults.bool(forKey: pendingKey) {
                 defaults.set(snapshot.usedPercent, forKey: triggerKey)
@@ -2630,7 +2637,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
         ) {
             return "completed"
         }
-        if defaults.bool(forKey: "automaticHandoff.pending.\(threadId)") {
+        if defaults.bool(forKey: "automaticHandoff.pending.\(threadId)"),
+           (automaticHandoffTriggerPercent(threadId: threadId) ?? 0) >= model.automaticHandoffThreshold {
             return "pending"
         }
         return "inactive"

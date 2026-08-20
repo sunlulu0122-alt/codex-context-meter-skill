@@ -26,6 +26,15 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+if [[ -z "${CODEX_CONTEXT_METER_APP_DIR:-}" && -f "$SUPPORT_DIR/install.json" ]]; then
+  recorded_app_dir="$(/usr/bin/plutil -extract appPath raw -o - "$SUPPORT_DIR/install.json" 2>/dev/null || true)"
+  case "$recorded_app_dir" in
+    "$HOME/Applications/"*.app) APP_DIR="$recorded_app_dir" ;;
+    "") ;;
+    *) die "安装清单中的应用路径不受支持：$recorded_app_dir" ;;
+  esac
+fi
+
 verify_macos
 verify_source_origin "$ALLOW_LOCAL"
 verify_asset_hashes
@@ -60,8 +69,8 @@ install_fallback() {
   case "$architecture" in
     arm64)
       archive="$WORK_DIR/CodexContextMeter-macOS-arm64.tar.gz"
-      url="https://github.com/sunlulu0122-alt/codex-context-meter-skill/releases/download/v1.4.0/CodexContextMeter-macOS-arm64.tar.gz"
-      expected="52ba2813010f99e3bc165af7a8211961cf5a055c08ecdc6032309e227a94dab7"
+      url="https://github.com/sunlulu0122-alt/codex-context-meter-skill/releases/download/v1.4.1/CodexContextMeter-macOS-arm64.tar.gz"
+      expected="7960ed34577e5ba2f6ef87779a1e63c3e36d85adf169470378501418bf4b3925"
       ;;
     *)
       die "未找到 $architecture 的已校验回退包；请安装 Xcode Command Line Tools 后重试源码构建。"
@@ -132,7 +141,7 @@ PLIST
 cp "$WORK_DIR/launch-agent.plist" "$LAUNCH_AGENT"
 
 cat > "$WORK_DIR/install.json" <<JSON
-{"version":"1.4.0","appPath":"$APP_DIR","source":"$EXPECTED_REPOSITORY"}
+{"version":"1.4.1","appPath":"$APP_DIR","source":"$EXPECTED_REPOSITORY"}
 JSON
 cp "$WORK_DIR/install.json" "$SUPPORT_DIR/install.json"
 

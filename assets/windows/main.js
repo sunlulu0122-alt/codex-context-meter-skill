@@ -739,12 +739,13 @@ function automaticHandoffStatus(snapshot) {
   const state = readState();
   if (state.automaticHandoffEnabled === false) return "disabled";
   const triggerPercent = Number(state[`handoffTrigger:${snapshot.threadId}`]);
-  if (state[`handoffCompleted:${snapshot.threadId}`]
-      && Number.isFinite(triggerPercent)
+  const hasValidTrigger = Number.isFinite(triggerPercent)
       && triggerPercent >= AUTOMATIC_HANDOFF_THRESHOLD
-      && triggerPercent <= 100) return "completed";
+      && triggerPercent <= 100;
+  if (state[`handoffCompleted:${snapshot.threadId}`]
+      && hasValidTrigger) return "completed";
   if (handoffThreadsInFlight.has(snapshot.threadId)) return "creating";
-  if (state[`handoffPending:${snapshot.threadId}`]) {
+  if (state[`handoffPending:${snapshot.threadId}`] && hasValidTrigger) {
     return snapshot.taskEstimate ? "waiting_for_task_completion" : "pending";
   }
   return "inactive";
@@ -763,11 +764,16 @@ async function considerAutomaticHandoff(snapshot, rollout, executable) {
     return;
   }
   const triggerPercent = Number(state[triggerKey]);
-  if (state[completedKey]
-      && Number.isFinite(triggerPercent)
+  const hasValidTrigger = Number.isFinite(triggerPercent)
       && triggerPercent >= AUTOMATIC_HANDOFF_THRESHOLD
-      && triggerPercent <= 100) return;
+      && triggerPercent <= 100;
+  if (state[completedKey]
+      && hasValidTrigger) return;
   if (state[completedKey]) delete state[completedKey];
+  if (state[pendingKey] && !hasValidTrigger) {
+    delete state[pendingKey];
+    delete state[noticeKey];
+  }
   if (snapshot.usedPercent >= AUTOMATIC_HANDOFF_THRESHOLD) {
     if (!state[pendingKey]) state[triggerKey] = snapshot.usedPercent;
     state[pendingKey] = true;
