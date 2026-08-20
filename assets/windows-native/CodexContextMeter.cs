@@ -33,6 +33,7 @@ namespace CodexContextMeterNative {
     public bool AutomaticHandoffEnabled = true;
     public int AutomaticHandoffThreshold = 80;
     public Dictionary<string, string> Completed = new Dictionary<string, string>();
+    public Dictionary<string, double> TriggerPercent = new Dictionary<string, double>();
     public Dictionary<string, bool> Pending = new Dictionary<string, bool>();
   }
 
@@ -222,8 +223,18 @@ namespace CodexContextMeterNative {
     }
 
     void ConsiderHandoff(Snapshot s) {
-      if (!state.AutomaticHandoffEnabled || state.Completed.ContainsKey(s.ThreadId)) return;
-      if (s.UsedPercent >= state.AutomaticHandoffThreshold) state.Pending[s.ThreadId] = true;
+      if (!state.AutomaticHandoffEnabled) return;
+      double trigger;
+      var hasValidCompletion = state.Completed.ContainsKey(s.ThreadId)
+        && state.TriggerPercent.TryGetValue(s.ThreadId, out trigger)
+        && trigger >= state.AutomaticHandoffThreshold
+        && trigger <= 100;
+      if (hasValidCompletion) return;
+      if (state.Completed.ContainsKey(s.ThreadId)) state.Completed.Remove(s.ThreadId);
+      if (s.UsedPercent >= state.AutomaticHandoffThreshold) {
+        if (!state.Pending.ContainsKey(s.ThreadId) || !state.Pending[s.ThreadId]) state.TriggerPercent[s.ThreadId] = s.UsedPercent;
+        state.Pending[s.ThreadId] = true;
+      }
       bool pending; if (!state.Pending.TryGetValue(s.ThreadId, out pending) || !pending || s.TaskRunning || handingOff) { SaveState(); return; }
       handingOff = true; SaveState();
       ThreadPool.QueueUserWorkItem(delegate {

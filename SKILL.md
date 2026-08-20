@@ -16,7 +16,7 @@ Operate only through the bundled deterministic scripts. Preserve user data and r
 - Describe the Windows 1.4 native app as locally compiled from bundled source and not Authenticode-signed. The older Electron installer is an explicit compatibility fallback only and remains protected by its pinned SHA-256 check.
 - Let the user grant Accessibility permission personally. Open the correct Settings page when requested, but never claim permission was granted without verification.
 - Treat displayed percentages, quotas, task ETA, and task state as valid only when the app obtained their documented real signals. Do not invent substitutes.
-- Disclose that the 80% automatic handoff feature is not read-only: after the current task finishes, it writes a local handoff package and uses the official Codex App Server to create and open the next task. It does not interrupt, archive, or delete the source task.
+- Disclose that automatic handoff is not read-only: by default it triggers at 80% used context (the user can change or disable it), then after the current task finishes it writes a local handoff package and uses the official Codex App Server to create and open the next task. It does not interrupt, archive, or delete the source task.
 
 ## Choose the operation
 

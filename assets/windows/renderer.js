@@ -38,7 +38,7 @@ function handoffStatus(status) {
   const labels = {
     waiting_for_task_completion: "等待当前任务",
     creating: "正在交接",
-    completed: "已完成",
+    completed: "已交接",
     failed: "失败待重试",
     retry_wait: "等待重试",
     pending: "待交接",

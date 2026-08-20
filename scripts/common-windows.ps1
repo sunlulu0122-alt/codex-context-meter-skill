@@ -21,7 +21,7 @@ function Assert-Windows {
 function Assert-SupportedWindowsArchitecture {
     $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
     if ($architecture -ne "X64") {
-        Stop-WithError "版本 1.3.0 的 Windows 安装器仅支持 x64；当前系统为 $architecture。"
+        Stop-WithError "版本 1.4.0 的 Windows 安装器仅支持 x64；当前系统为 $architecture。"
     }
     Write-Output "系统架构已验证：Windows x64"
 }

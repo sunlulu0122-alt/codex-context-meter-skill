@@ -1725,7 +1725,7 @@ private struct MeterDetailsView: View {
         switch status {
         case "waiting_for_task_completion": return "等待当前任务"
         case "creating": return "正在交接"
-        case "completed": return "已完成"
+        case "completed": return "已交接"
         case "failed": return "失败待重试"
         case "retry_wait": return "等待重试"
         case "pending": return "待交接"
@@ -2483,9 +2483,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
             return
         }
 
-        if !(defaults.string(forKey: completedKey) ?? "").isEmpty {
+        if automaticHandoffCompletionIsValid(
+            completedThreadId: defaults.string(forKey: completedKey),
+            triggerPercent: automaticHandoffTriggerPercent(threadId: snapshot.threadId),
+            threshold: model.automaticHandoffThreshold
+        ) {
             handoffStatusByThread[snapshot.threadId] = "completed"
             return
+        }
+        if defaults.object(forKey: completedKey) != nil {
+            // Older builds recorded completion without the real threshold event.
+            // Treat that state as stale so a low-usage conversation cannot appear
+            // to have triggered a handoff or suppress a future valid trigger.
+            defaults.removeObject(forKey: completedKey)
         }
         if snapshot.usedPercent >= model.automaticHandoffThreshold {
             if !defaults.bool(forKey: pendingKey) {
@@ -2611,9 +2621,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
 
     private func automaticHandoffStoredStatus(threadId: String) -> String {
         let defaults = UserDefaults.standard
-        if !(defaults.string(
-            forKey: "automaticHandoff.completed.\(threadId)"
-        ) ?? "").isEmpty {
+        if automaticHandoffCompletionIsValid(
+            completedThreadId: defaults.string(
+                forKey: "automaticHandoff.completed.\(threadId)"
+            ),
+            triggerPercent: automaticHandoffTriggerPercent(threadId: threadId),
+            threshold: model.automaticHandoffThreshold
+        ) {
             return "completed"
         }
         if defaults.bool(forKey: "automaticHandoff.pending.\(threadId)") {
@@ -2688,6 +2702,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate
     }
 }
 
+private func automaticHandoffCompletionIsValid(
+    completedThreadId: String?,
+    triggerPercent: Double?,
+    threshold: Double
+) -> Bool {
+    guard let completedThreadId, !completedThreadId.isEmpty,
+          let triggerPercent,
+          triggerPercent.isFinite,
+          triggerPercent >= threshold,
+          triggerPercent <= 100
+    else { return false }
+    return true
+}
+
 private func runSelfTest() -> Int32 {
     let fixture = """
     {"timestamp":"2026-07-28T00:57:00.000Z","type":"session_meta","payload":{"cwd":"/tmp/context-meter-test"}}
@@ -2737,6 +2765,21 @@ private func runSelfTest() -> Int32 {
             after: "赛博办公室开发 4（自动交接）",
             among: ["赛博办公室开发 3", "赛博办公室开发 4"]
         ) == "赛博办公室开发 5"
+        && automaticHandoffCompletionIsValid(
+            completedThreadId: "next-thread",
+            triggerPercent: 80,
+            threshold: 80
+        )
+        && !automaticHandoffCompletionIsValid(
+            completedThreadId: "next-thread",
+            triggerPercent: nil,
+            threshold: 80
+        )
+        && !automaticHandoffCompletionIsValid(
+            completedThreadId: "next-thread",
+            triggerPercent: 79.9,
+            threshold: 80
+        )
     print(passed ? "CodexContextMeter self-test passed" : "CodexContextMeter self-test failed")
     return passed ? 0 : 1
 }

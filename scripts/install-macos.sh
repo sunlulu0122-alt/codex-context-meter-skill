@@ -60,8 +60,8 @@ install_fallback() {
   case "$architecture" in
     arm64)
       archive="$WORK_DIR/CodexContextMeter-macOS-arm64.tar.gz"
-      url="https://github.com/sunlulu0122-alt/codex-context-meter-skill/releases/download/v1.3.0/CodexContextMeter-macOS-arm64.tar.gz"
-      expected="149e77b4b5c5eb66a784d9babe36c9f30b084ca5c7f9bf5f8a132324ddf81c89"
+      url="https://github.com/sunlulu0122-alt/codex-context-meter-skill/releases/download/v1.4.0/CodexContextMeter-macOS-arm64.tar.gz"
+      expected="52ba2813010f99e3bc165af7a8211961cf5a055c08ecdc6032309e227a94dab7"
       ;;
     *)
       die "未找到 $architecture 的已校验回退包；请安装 Xcode Command Line Tools 后重试源码构建。"
@@ -132,7 +132,7 @@ PLIST
 cp "$WORK_DIR/launch-agent.plist" "$LAUNCH_AGENT"
 
 cat > "$WORK_DIR/install.json" <<JSON
-{"version":"1.3.0","appPath":"$APP_DIR","source":"$EXPECTED_REPOSITORY"}
+{"version":"1.4.0","appPath":"$APP_DIR","source":"$EXPECTED_REPOSITORY"}
 JSON
 cp "$WORK_DIR/install.json" "$SUPPORT_DIR/install.json"
 
